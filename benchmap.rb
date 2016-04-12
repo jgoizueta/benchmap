@@ -12,6 +12,7 @@ class BenchMap
     @settings = YAML.load File.read('config/settings.yml')
     @username = @settings['username']
     @api_key = @settings['api_key']
+    @tiler = @settings['tiler']
   end
 
   def sql(query)
@@ -41,10 +42,11 @@ class BenchMap
 
   def fetch_tile(tag, style, layergroupid, z, x, y)
     output_dir = File.join('results', tag)
-    url = "https://#{@username}.cartodb.com/api/v1/map/#{layergroupid}/#{z}/#{x}/#{y}.png"
+    url = tile_url(layergroupid, z, x, y)
     timing = timed_curl(url)
     write_output_file tag, "tile_#{style}_#{z}_#{x}_#{y}_timings.yml", timing.to_yaml
-    `curl --silent "#{url}" -o #{output_file(tag, "tile_#{style}_#{z}_#{x}_#{y}.png")}`
+    `curl --silent "#{url}" #{tile_url_curl_params} -o #{output_file(tag, "tile_#{style}_#{z}_#{x}_#{y}.png")}`
+  end
   end
 
   private
