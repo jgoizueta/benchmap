@@ -15,10 +15,16 @@ class BenchMap
     @tiler = @settings['tiler']
   end
 
-  def sql(query)
+  def sql(query, options = {})
     url = sql_api_url q: query
-    puts url
-    JSON.load `curl --silent "#{url}"`
+    t0 = Time.now
+    results = JSON.load `curl --silent "#{url}"`
+    t = Time.now - t0
+    if options[:timing]
+      results ||= {}
+      results = results.merge time: t
+    end
+    results
   end
 
   def table_size(table)
@@ -83,6 +89,14 @@ class BenchMap
       end
     end
     [id, t]
+  end
+
+  def drop_overviews(table)
+    sql "SELECT CDB_DropOverviews('#{table}')"
+  end
+
+  def create_overviews(table, tolerance_px=1.0)
+    sql "SELECT CDB_CreateOverviewsWithToleranceInPixels('#{table}', #{tolerance_px})", timing: true
   end
 
   private
