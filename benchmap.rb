@@ -48,16 +48,18 @@ class BenchMap
     `curl --silent "#{url}" #{tile_url_curl_params} -o #{output_file(tag, "tile_#{style}_#{z}_#{x}_#{y}.png")}`
   end
 
-  def import(file)
+  def import(file, privacy = :public)
     t0 = Time.now
     api_url = "https://#{@username}.cartodb.com/api/v1/imports/?api_key=#{@api_key}"
+    params = { 'privacy': privacy.to_s }
     if /\A[a-z]+:\/\// =~ file
       # url
       url = file
-      result = `curl --silent -H "Content-Type: application/json" -d '{"url":"#{url}"}' #{api_url}`
+      params['url'] = url
+      result = `curl --silent -H "Content-Type: application/json" -d '#{params.to_json}' #{api_url}`
     else
       # file
-      result = `curl --silent -F file=@#{file} "#{api_url}"`
+      result = `curl --silent -F file=@#{file} -d '#{params.to_json}' "#{api_url}"`
     end
     result = JSON.load result
     if result['success']
