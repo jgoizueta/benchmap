@@ -47,9 +47,59 @@ class BenchMap
     write_output_file tag, "tile_#{style}_#{z}_#{x}_#{y}_timings.yml", timing.to_yaml
     `curl --silent "#{url}" #{tile_url_curl_params} -o #{output_file(tag, "tile_#{style}_#{z}_#{x}_#{y}.png")}`
   end
+
+  def import(file)
+    t0 = Time.now
+    api_url = "https://#{@username}.cartodb.com/api/v1/imports/?api_key=#{@api_key}"
+    if /\A[a-z]+:\/\// =~ file
+      # url
+      url = file
+      result = `curl --silent -H "Content-Type: application/json" -d '{"url":"#{url}"}' #{api_url}`
+    else
+      # file
+      result = `curl --silent -F file=@#{file} "#{api_url}"`
+    end
+    result = JSON.load result
+    if result['success']
+      id = result['item_queue_id']
+      t = nil
+      loop do
+        sleep 5.0
+        result = `curl --silent --silent "https://#{@username}.cartodb.com/api/v1/imports/#{id}?api_key=#{@api_key}"`
+        result = JSON.load result
+        puts result
+        case result['state']
+        when 'failure'
+          t = Time.now
+          puts "ERROR AFTER #{t-t0}:"
+          puts result
+        when 'complete'
+          t = Time.now
+          puts "IMPORT TIME #{t-t0}"
+          break
+        end
+      end
+    end
+    [id, t]
   end
 
   private
+
+  def tile_url(layergroup_id, z, x, y)
+    if @tiler
+      "#{@tiler}/api/v1/map/#{layergroup_id}/#{z}/#{x}/#{y}.png"
+    else
+      "https://#{@username}.cartodb.com/api/v1/map/#{layergroup_id}/#{z}/#{x}/#{y}.png"
+    end
+  end
+
+  def tile_url_curl_params
+    if @tiler
+      %{ --header "Host: #{@username}.cartodb.com" }
+    else
+      ''
+    end
+  end
 
   def tmp_config(tag, style, table)
     invalidator = Time.now.to_f.round(6).to_s
