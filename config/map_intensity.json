@@ -12,9 +12,10 @@
           marker-line-opacity: 1;
           marker-placement: point;
           marker-type: ellipse;
-          marker-width: 1;
-          marker-fill: #F11810;
+          marker-width: 4;
+          marker-fill: #FF9900;
           marker-allow-overlap: true;
+          marker-comp-op: multiply;
       }",
       "sql": "select * from {{TABLE}}"
     }

@@ -6,6 +6,7 @@
     "options": {
       "cartocss_version": "2.1.1",
       "cartocss": "#layer {
+          marker-file: url(http://s3.amazonaws.com/com.cartodb.users-assets.production/production/jgoizueta/assets/20160407153212FF4D00-1.png);
           marker-fill-opacity: 1;
           marker-line-color: #FFF;
           marker-line-width: 0;
@@ -13,7 +14,7 @@
           marker-placement: point;
           marker-type: ellipse;
           marker-width: 1;
-          marker-fill: #F11810;
+          marker-fill: #FF6601;
           marker-allow-overlap: true;
       }",
       "sql": "select * from {{TABLE}}"

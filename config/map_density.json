@@ -1,0 +1,39 @@
+{
+  "version": "1.3.0",
+  "id": "{{INVALIDATOR}}",
+  "layers": [{
+    "type": "mapnik",
+    "options": {
+      "cartocss_version": "2.1.1",
+      "cartocss": "#layer {
+        marker-fill-opacity: 0.8;
+        marker-line-color: #FFF;
+        marker-line-width: 0;
+        marker-line-opacity: 1;
+        marker-width: 2;
+        marker-fill: #B10026;
+        marker-allow-overlap: true;
+      }
+      #layer [ _feature_count <= 500] {
+         marker-fill: #E31A1C;
+      }
+      #layer [ _feature_count <= 250] {
+         marker-fill: #FC4E2A;
+      }
+      #layer [ _feature_count <= 100] {
+         marker-fill: #FD8D3C;
+      }
+      #layer [ _feature_count <= 50] {
+         marker-fill: #FEB24C;
+      }
+      #layer [ _feature_count <= 10] {
+         marker-fill: #FED976;
+      }
+      #layer [ _feature_count <= 1] {
+         marker-fill: #FFFFB2;
+      }
+      ",
+      "sql": "select * from {{TABLE}}"
+    }
+  }]
+}
