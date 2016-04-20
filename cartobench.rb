@@ -3,9 +3,6 @@ require 'json'
 require 'uri'
 require 'fileutils'
 
-# Tables should be public (we just instantiate a mapconfig here)
-# Timeout for user queries should be large enough
-
 class CartoBench
 
   def initialize(options = {})
@@ -15,15 +12,16 @@ class CartoBench
     @overviews_tolerance_px = options[:overviews_tolerance_px] || 1
 
     output_dir = options[:output_dir] || 'results'
-    @directory = ->(tag) { File.join(output_dir, tag) }
-    @filenaming = ->(tag, prefix, suffix) { "#{prefix}_#{tag}_#{sufffix}" }
     @curl_mode = $DEBUG ? '-v' : '--silent'
   end
+
+  attr_accessor :tiler
+  attr_reader :username
 
   def sql(query, options = {})
     url = sql_api_url q: query
     t0 = Time.now
-    results = JSON.load `curl #{@curl_mode} "#{url}"`
+    results = JSON.load `curl --connect-timeout 60 -m 1800 --retry 0 #{@curl_mode} "#{url}"`
     t = Time.now - t0
     if options[:timing]
       results ||= {}
@@ -45,39 +43,29 @@ class CartoBench
     size
   end
 
-  # output directory namer
-  def set_directory(&blk)
-    @directory = blk
-  end
-
-  # output file namer
-  def set_filenaming(&blk)
-    @filenaming = blk
-  end
-
-  def directory(tag)
-    @directory[tag]
-  end
-
-  def filenaming(tag, prefix, suffix)
-    @filenaming[tag, prefix, suffix]
-  end
-
-  def create_map(tag, map_config_template, table)
-    mapconfig = tmp_config(tag, map_config_template, table)
+  def create_map(map_config_template, table, options = {})
+    mapconfig = tmp_config(map_config_template, table, options)
     result = `curl #{@curl_mode} 'https://#{@username}.cartodb.com/api/v1/map' -H 'Content-Type: application/json' -d @#{mapconfig}`
     result && JSON.load(result)['layergroupid']
   end
 
-  def fetch_tile(tag, layergroupid, z, x, y)
-    output_dir = File.join('results', tag)
+  def fetch_tile(basename, layergroupid, z, x, y)
     url = tile_url(layergroupid, z, x, y)
     params = tile_url_curl_params
     timing = timed_curl(url, params)
-    timing_file = filenaming(tag, "tile_#{z}_#{x}_#{y}", "timings.yml")
-    png_file = filenaming(tag, "tile_#{z}_#{x}_#{y}", ".png")
-    write_output_file tag, timing_file, timing.to_yaml
-    `curl #{@curl_mode} "#{url}" #{params} -o #{output_file(tag, png_file)}`
+    timing_file = "#{basename}_timings.yml"
+    png_file = "#{basename}.png"
+    write_output_file timing_file, timing.to_yaml
+    `curl #{@curl_mode} "#{url}" #{params} -o #{png_file}`
+    if File.exist? png_file
+      if `file #{png_file}` =~ /PNG image data/
+        nil
+      else
+        JSON.load File.read(png_file)
+      end
+    else
+      { error: 'unknown error' }
+    end
   end
 
   def import(file, privacy = :public)
@@ -121,12 +109,12 @@ class CartoBench
   end
 
   def create_overviews(table, tolerance_px=@overviews_tolerance_px)
-    "SELECT CDB_CreateOverviewsWithToleranceInPixels('#{table}', #{tolerance_px})"
-    sql "SELECT CDB_CreateOverviewsWithToleranceInPixels('#{table}', #{tolerance_px})", timing: true
+    # sql "SELECT CDB_CreateOverviewsWithToleranceInPixels('#{table}', #{tolerance_px})", timing: true
+    sql "SELECT CDB_CreateOverviews('#{table}')", timing: true
   end
 
-  def write_output_file(tag, name, output)
-    filename = output_file(tag, name)
+  def write_output_file(filename, output)
+    FileUtils.mkdir_p File.dirname(filename)
     File.open(filename, 'w') do |file|
       file.write output
     end
@@ -153,16 +141,14 @@ class CartoBench
     end
   end
 
-  def tmp_config(tag, mapconfig_template, table)
+  def tmp_config(mapconfig_template, table, options = {})
     invalidator = Time.now.to_f.round(6).to_s
     config = mapconfig_template.gsub('{{TABLE}}', table).gsub('{{INVALIDATOR}}', invalidator)
-    write_output_file(tag, "mapconfig_tmp.json", config)
-  end
-
-  def output_file(tag, name)
-    dir = directory(tag)
-    FileUtils.mkdir_p dir
-    File.join(dir, name)
+    filename = options[:pathname] || 'tmp'
+    if File.directory?(filename)
+      filename = File.join(filename, "mapconfig_tmp.json")
+    end
+    write_output_file(filename, config)
   end
 
   def timed_curl(url, params = nil)
@@ -171,7 +157,7 @@ class CartoBench
   end
 
   def sql_api_url(params)
-    "http://#{@username}.cartodb.com/api/v2/sql?#{hash_to_params(params.merge(api_key: @api_key))}"
+    "https://#{@username}.cartodb.com/api/v2/sql?#{hash_to_params(params.merge(api_key: @api_key))}"
   end
 
   def hash_to_params(hash)

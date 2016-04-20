@@ -2,7 +2,32 @@ require_relative 'cartobench'
 
 config = YAML.load(File.read('config/settings.yml')).inject({}){|settings, (k,v)| settings[k.to_sym] = v; settings}
 
-scenarios = Dir['config/scenarios/*.yml'].map { |fn| YAML.load File.read(fn) }
+NO_CREATION = true
+NO_DESTRUCTION = true
+
+scenarios = {
+  ov: ->(bench, table){
+    puts "OVERVIEWS"
+    unless NO_CREATION
+      result = bench.create_overviews(table)
+      t = result[:time]
+      puts "  creation time: #{t}"
+      { overviews: { time: t, overviews: result } }
+    else
+      result = bench.send :overview_tables, table
+      { overviews: result }
+    end
+  } #,
+  # no: ->(bench, table) {
+  #   puts "NO OVERVIEWS"
+  #   unless NO_DESTRUCTION
+  #     bench.drop_overviews table
+  #     puts "   dropped"
+  #   end
+  #   {}
+  # }
+}
+datasets = Dir['config/datasets/*.yml'].map { |fn| YAML.load File.read(fn) }
 styles = Dir['config/map_*.json'].map { |fn| fn.match(/\/map_(.*)\.json/)[1] }
 
 test_tiles = [
@@ -29,69 +54,43 @@ def gb(size)
   "#{size_in_gb}GB"
 end
 
-NO_CREATION = true
-
 bench = CartoBench.new config
 # puts bench.sql('SHOW STATEMENT_TIMEOUT;')['rows'].first
 
-scenarios.each do |scenario|
-  tag = scenario['tag']
-  table = scenario['table']
-  puts "#{tag} (#{table})"
+datasets.each do |dataset|
+  dataset_name = dataset['tag']
+  table = dataset['table']
+  puts "#{dataset_name} (#{table})"
+  info = {}
 
-  [:no, :ov].each do |mode|
-
-    next if NO_CREATION && mode == :no
-
-    style = nil
-
-    bench.set_directory do |tag|
-      dir = File.join(results, tag)
-      # dir = File.join(dir, mode.to_s)
-      if style
-        dir = File.join(dir, style)
-      end
-      dir
-    end
-
-    bench.set_filenaming do |tag, prefix, suffix|
-      "#{prefix}_#{mode}_#{suffix}"
-    end
-
-    if mode == :no
-      puts "NO OVERVIEWS"
-      bench.drop_overviews table
-      puts "   dropped"
-    else
-      puts "OVERVIEWS"
-      unless NO_CREATION
-        result = bench.create_overviews(table)
-        t = result[:time]
-        puts "  creation time: #{t}"
-        filename = bench.filenaming(tag, nil, 'time', '.yml')
-        bench.write_output_file tag, nil, filename, { time: t, overviews: result }.to_yaml
-      end
-    end
-
+  scenarios.each do |scenario_name, scenario|
+    info.merge! scenario[bench, table]
     table_size = bench.table_size(table)
     dataset_size = bench.dataset_size(table)
+    info.merge! size: dataset_size
     puts "  Table size: #{gb(table_size)}"
     puts "  Table+Overviews size: #{gb(dataset_size)}"
-    filename = bench.filenaming(tag, nil, 'size', '.yml')
-    bench.write_output_file tag, nil, filename, { table: table_size, table_and_overviews: dataset_size }.to_yaml
 
-    for style in styles # for and not each because we're using the outer x, bound to the directory proc
+    info_filename = File.join('results', dataset_name, "#{scenario_name}.yml")
+    bench.write_output_file info_filename, info.to_yaml
+
+    styles.each do |style|
       puts "  style: #{style}"
       map_config_template = File.read("config/map_#{style}.json")
       test_tiles.each do |tile|
         puts "    tile: #{tile}"
         z, x, y = tile
-        layergroupid = bench.create_map(tag, map_config_template, table)
+        layergroupid = bench.create_map(map_config_template, table)
+        tile_base_name = "tile_#{z}_#{x}_#{y}_#{style}_#{scenario_name}"
+        path = File.join('results', dataset_name, tile_base_name)
         if layergroupid
-          bench.fetch_tile tag, layergroupid, z, x, y
+          errors = bench.fetch_tile path, layergroupid, z, x, y
         else
           puts "MAP for #{table} FAILED"
           exit
+        end
+        if errors
+            bench.write_output_file "#{path}_errors.yml", errors.to_yaml
         end
       end
     end
