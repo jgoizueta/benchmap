@@ -45,7 +45,7 @@ class CartoBench
 
   def create_map(map_config_template, table, options = {})
     mapconfig = tmp_config(map_config_template, table, options)
-    result = `curl #{@curl_mode} 'https://#{@username}.cartodb.com/api/v1/map' -H 'Content-Type: application/json' -d @#{mapconfig}`
+    result = `curl #{@curl_mode} 'https://#{@username}.cartodb.com/api/v1/map?api_key=#{@api_key}' -H 'Content-Type: application/json' -d @#{mapconfig}`
     result && JSON.load(result)['layergroupid']
   end
 
@@ -56,7 +56,7 @@ class CartoBench
     timing_file = "#{basename}_timings.yml"
     png_file = "#{basename}.png"
     write_output_file timing_file, timing.to_yaml
-    `curl #{@curl_mode} "#{url}" #{params} -o #{png_file}`
+    `curl #{@curl_mode} "#{url}?api_key=#{@api_key}" #{params} -o #{png_file}`
     if File.exist? png_file
       if `file #{png_file}` =~ /PNG image data/
         nil
