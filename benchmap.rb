@@ -17,7 +17,7 @@ scenarios = {
       result = bench.send :overview_tables, table
       { overviews: result }
     end
-  } #,
+  } # ,
   # no: ->(bench, table) {
   #   puts "NO OVERVIEWS"
   #   unless NO_DESTRUCTION
@@ -31,18 +31,18 @@ datasets = Dir['config/datasets/*.yml'].map { |fn| YAML.load File.read(fn) }
 styles = Dir['config/map_*.json'].map { |fn| fn.match(/\/map_(.*)\.json/)[1] }
 
 test_tiles = [
-  [14, 4824, 6157],
-  [17, 38598, 49265],
-
-  [6, 32, 23],
   [0, 0, 0],
   [2, 1, 1],
   [4, 4, 6],
+  [6, 32, 23],
   [9, 150, 192],
 
   [13, 2412, 3079],
   [16, 19299, 24635],
   [18, 77201, 98539],
+
+  [14, 4824, 6157],
+  [17, 38598, 49265],
 
   [13, 2413, 3080],
   [16, 19305, 24647],
@@ -63,6 +63,10 @@ datasets.each do |dataset|
   puts "#{dataset_name} (#{table})"
   info = {}
 
+  tiles = dataset['tiles'] || test_tiles
+
+  measures = 2
+
   scenarios.each do |scenario_name, scenario|
     info.merge! scenario[bench, table]
     table_size = bench.table_size(table)
@@ -77,20 +81,24 @@ datasets.each do |dataset|
     styles.each do |style|
       puts "  style: #{style}"
       map_config_template = File.read("config/map_#{style}.json")
-      test_tiles.each do |tile|
-        puts "    tile: #{tile}"
-        z, x, y = tile
-        layergroupid = bench.create_map(map_config_template, table)
-        tile_base_name = "tile_#{z}_#{x}_#{y}_#{style}_#{scenario_name}"
-        path = File.join('results', dataset_name, tile_base_name)
-        if layergroupid
-          errors = bench.fetch_tile path, layergroupid, z, x, y
-        else
-          puts "MAP for #{table} FAILED"
-          exit
-        end
-        if errors
-            bench.write_output_file "#{path}_errors.yml", errors.to_yaml
+      tiles.each do |tile_seed|
+        bench.each_tile_ancestor(*tile_seed) do |*tile|
+          puts "    tile: #{tile}"
+          z, x, y = tile
+          (1..measures).each do |measure|
+            layergroupid = bench.create_map(map_config_template, table)
+            tile_base_name = "tile_#{z}_#{x}_#{y}_#{style}_#{scenario_name}_#{measure}"
+            path = File.join('results', dataset_name, tile_base_name)
+            if layergroupid
+              errors = bench.fetch_tile path, layergroupid, z, x, y
+            else
+              puts "MAP for #{table} FAILED"
+              exit
+            end
+            if errors
+                bench.write_output_file "#{path}_errors.yml", errors.to_yaml
+            end
+          end
         end
       end
     end

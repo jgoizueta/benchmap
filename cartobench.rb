@@ -20,14 +20,29 @@ class CartoBench
 
   def sql(query, options = {})
     url = sql_api_url q: query
-    t0 = Time.now
-    results = JSON.load `curl --connect-timeout 60 -m 1800 --retry 0 #{@curl_mode} "#{url}"`
-    t = Time.now - t0
-    if options[:timing]
-      results ||= {}
-      results = results.merge time: t
+    timed(options) do
+      JSON.load `curl --connect-timeout 60 -m 1800 --retry 0 #{@curl_mode} "#{url}"`
     end
-    results
+  end
+
+  def batch_sql(query, options = {})
+    url = batch_sql_api_post_url
+    data = { query: query, api_key: @api_key }
+    data = data.to_json.gsub("'", "'\"'\"'")
+    timed(options) do
+      result = JSON.load `curl -X POST --connect-timeout 60 -m 1800 --retry 0 #{@curl_mode} -H "Content-Type: application/json" -d '#{data}'  "#{url}"`
+      job_id = result['job_id']
+      if job_id && result['status'] == 'pending'
+        url = batch_sql_api_post_url(job_id)
+        exponential_loop do
+          result = JSON.load `curl -X GET --connect-timeout 60 -m 1800 --retry 0 #{@curl_mode} "#{url}"`
+          unless result['status'] == 'pending'
+            break
+          end
+        end
+      end
+      result
+    end
   end
 
   def table_size(table)
@@ -50,21 +65,20 @@ class CartoBench
   end
 
   def fetch_tile(basename, layergroupid, z, x, y)
-    url = tile_url(layergroupid, z, x, y)
-    params = tile_url_curl_params
-    timing = timed_curl(url, params)
-    timing_file = "#{basename}_timings.yml"
-    png_file = "#{basename}.png"
-    write_output_file timing_file, timing.to_yaml
-    `curl #{@curl_mode} "#{url}?api_key=#{@api_key}" #{params} -o #{png_file}`
-    if File.exist? png_file
-      if `file #{png_file}` =~ /PNG image data/
-        nil
-      else
-        JSON.load File.read(png_file)
-      end
-    else
-      { error: 'unknown error' }
+    fetch_image basename, tile_url(layergroupid, z, x, y)
+  end
+
+  def tile_parent(z, x, y)
+    if z > 0
+      [z - 1, x >> 1, y >> 1]
+    end
+  end
+
+  def each_tile_ancestor(z, x, y)
+    tile = [z, x, y]
+    while tile
+      yield *tile
+      tile = tile_parent *tile
     end
   end
 
@@ -85,8 +99,7 @@ class CartoBench
     if result['success']
       id = result['item_queue_id']
       t = nil
-      loop do
-        sleep 5.0
+      exponential_loop do
         result = `curl #{@curl_mode} --silent "https://#{@username}.cartodb.com/api/v1/imports/#{id}?api_key=#{@api_key}"`
         result = JSON.load result
         case result['state']
@@ -109,8 +122,7 @@ class CartoBench
   end
 
   def create_overviews(table, tolerance_px=@overviews_tolerance_px)
-    # sql "SELECT CDB_CreateOverviewsWithToleranceInPixels('#{table}', #{tolerance_px})", timing: true
-    sql "SELECT CDB_CreateOverviews('#{table}')", timing: true
+    sql "SELECT CDB_CreateOverviewsWithToleranceInPixels('#{table}', #{tolerance_px})", timing: true
   end
 
   def write_output_file(filename, output)
@@ -121,9 +133,65 @@ class CartoBench
     filename
   end
 
-  # TODO: static maps
+  def static_map(basename, layergroup_id, options)
+    fetch_image basename, static_map_url(layergroup_id, options)
+  end
 
   private
+
+  def fetch_image(basename, url)
+    params = tile_url_curl_params
+    timing = timed_curl(url, params)
+    timing_file = "#{basename}_timings.yml"
+    png_file = "#{basename}.png"
+    write_output_file timing_file, timing.to_yaml
+    `curl #{@curl_mode} "#{url}?api_key=#{@api_key}" #{params} -o #{png_file}`
+    if File.exist? png_file
+      if `file #{png_file}` =~ /PNG image data/
+        nil
+      else
+        begin
+          png_file = File.read(png_file)
+          JSON.load png_file
+        rescue
+          { error: png_file || 'unknown error' }
+        end
+      end
+    else
+      { error: 'unknown error' }
+    end
+  end
+
+  def exponential_loop(options = {})
+    sleep_time = options[:time] || 0.1
+    factor = options[:factor] || 2
+    limit = options[:limit] || 5.0
+    timeout = options[:timeout]
+    start_t = Time.now
+    loop do
+      if timeout
+        t = Timen.now - start_t
+        break if t*1E-3 >= timeout
+      end
+      yield
+      sleep sleep_time
+      if sleep_time < limit
+        sleep_time *= factor
+        sleep_time = limit if sleep_time > limit
+      end
+    end
+  end
+
+  def timed(options)
+    t0 = Time.now
+    results = yield
+    t = Time.now - t0
+    if options[:timing]
+      results ||= {}
+      results = results.merge time: t
+    end
+    results
+  end
 
   def tile_url(layergroup_id, z, x, y)
     if @tiler
@@ -141,8 +209,21 @@ class CartoBench
     end
   end
 
+  def static_map_url(layergroup_id, options)
+    width = options[:width] || 500
+    height = options[:height] || 500
+    if options[:bbox]
+      endpoint = "api/v1/map/static/bbox/#{layergroup_id}/#{bbox*','}/#{width}/#{height}.png"
+    else
+      lng, lat = options[:center]
+      z = options[:z]
+      endpoint = "api/v1/map/static/center/#{layergroup_id}/#{z}/#{lat}/#{lng}/#{width}/#{height}.png"
+    end
+    "https://#{@username}.cartodb.com/#{endpoint}"
+  end
+
   def tmp_config(mapconfig_template, table, options = {})
-    invalidator = Time.now.to_f.round(6).to_s
+    invalidator = Time.now.to_f.round(6).to_s + (1..6).map{rand(10)}*''
     config = mapconfig_template.gsub('{{TABLE}}', table).gsub('{{INVALIDATOR}}', invalidator)
     filename = options[:pathname] || 'tmp'
     if File.directory?(filename)
@@ -158,6 +239,16 @@ class CartoBench
 
   def sql_api_url(params)
     "https://#{@username}.cartodb.com/api/v2/sql?#{hash_to_params(params.merge(api_key: @api_key))}"
+  end
+
+  def batch_sql_api_post_url(params = {})
+    url = "https://#{@username}.cartodb.com/api/v2/sql/job"
+  end
+
+  def batch_sql_api_get_url(job_id, params = {})
+    url = "https://#{@username}.cartodb.com/api/v2/sql/job/#{job_id}"
+    url << "?#{hash_to_params(params.merge(api_key: @api_key))}"
+    url
   end
 
   def hash_to_params(hash)
