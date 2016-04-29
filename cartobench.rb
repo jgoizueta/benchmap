@@ -82,11 +82,25 @@ class CartoBench
     end
   end
 
-  def import(file, privacy = :public)
+  def import(file, options = {})
+    privacy = options['privacy'] || 'public'
+    sync = !!!options['sync']
+    params = { privacy: privacy.to_s }
+
     t0 = Time.now
-    api_url = "https://#{@username}.cartodb.com/api/v1/imports/?api_key=#{@api_key}"
-    params = { 'privacy': privacy.to_s }
-    if /\A[a-z]+:\/\// =~ file
+
+    if sync
+      base_api_url = "https://#{@username}.cartodb.com/api/v1/synchronizations"
+      params['interval'] = 900
+      puts "Creating a new Sync table..."
+    else
+      base_api_url = "https://#{@username}.cartodb.com/api/v1/imports"
+      puts "Creating a new table..."
+    end
+
+    api_url = base_api_url + "/?api_key=#{@api_key}"
+
+    if /\A[a-z]+\:\/\// =~ file
       # url
       url = file
       params['url'] = url
@@ -95,13 +109,17 @@ class CartoBench
       # file
       result = `curl #{@curl_mode} -F file=@#{file} -d '#{params.to_json}' "#{api_url}"`
     end
+
     result = JSON.load result
     if result['success']
       id = result['item_queue_id']
+      puts "Import process with ID #{id} has started."
       t = nil
       exponential_loop do
-        result = `curl #{@curl_mode} --silent "https://#{@username}.cartodb.com/api/v1/imports/#{id}?api_key=#{@api_key}"`
+        result = `curl #{@curl_mode} --silent "#{base_api_url}/#{id}?api_key=#{@api_key}"`
         result = JSON.load result
+        puts "Checking status for #{id}..."
+        puts result
         case result['state']
         when 'failure'
           t = Time.now
@@ -113,8 +131,16 @@ class CartoBench
           break
         end
       end
+    elsif result['state'] == 'created'
+      puts "Sync table created. Will sync again in 15 mins."
+      sleep 900.0
+      result = `curl #{@curl_mode} --silent "#{base_api_url}/#{id}/sync_now?api_key=#{@api_key}"`
     end
     [id, t]
+  end
+
+  def get_import_stats(id, config)
+    #TODO
   end
 
   def drop_overviews(table)
