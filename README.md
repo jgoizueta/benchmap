@@ -3,3 +3,4 @@ overviews, etc. See `benchmap.rb`for an example of use.
 
 * The user's statement_timeout should be long enough for all operations
   to be performed.
+* For charts generation `gnuplot` is required

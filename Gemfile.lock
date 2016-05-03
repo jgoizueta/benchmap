@@ -1,0 +1,14 @@
+GEM
+  specs:
+    os (0.9.6)
+    sys_cmd (1.1.1)
+      os (~> 0.9.6)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  sys_cmd
+
+BUNDLED WITH
+   1.10.6

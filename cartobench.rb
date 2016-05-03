@@ -1,3 +1,6 @@
+require 'rubygems'
+require 'bundler/setup'
+
 require 'yaml'
 require 'json'
 require 'uri'
@@ -163,6 +166,11 @@ class CartoBench
     fetch_image basename, static_map_url(layergroup_id, options)
   end
 
+  def overview_tables(table)
+    result = sql "SELECT * FROM CDB_Overviews('#{table}'::regclass)"
+    result && result['rows'].map{|row|  row['overview_table']}
+  end
+
   private
 
   def fetch_image(basename, url)
@@ -283,10 +291,5 @@ class CartoBench
         "#{key}=#{URI.encode value.to_s}"
       end
     end.compact.sort! * '&'
-  end
-
-  def overview_tables(table)
-    result = sql "SELECT * FROM CDB_Overviews('#{table}'::regclass)"
-    result['rows'].map{|row|  row['overview_table']}
   end
 end

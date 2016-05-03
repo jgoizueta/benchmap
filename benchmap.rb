@@ -2,6 +2,9 @@ require_relative 'cartobench'
 
 config = YAML.load(File.read('config/settings.yml')).inject({}){|settings, (k,v)| settings[k.to_sym] = v; settings}
 
+output_dir = 'results'
+FileUtils.mkdir_p output_dir
+
 NO_CREATION = true
 NO_DESTRUCTION = true
 
@@ -17,15 +20,15 @@ scenarios = {
       result = bench.send :overview_tables, table
       { overviews: result }
     end
-  } # ,
-  # no: ->(bench, table) {
-  #   puts "NO OVERVIEWS"
-  #   unless NO_DESTRUCTION
-  #     bench.drop_overviews table
-  #     puts "   dropped"
-  #   end
-  #   {}
-  # }
+  },
+  no: ->(bench, table) {
+    puts "NO OVERVIEWS"
+    unless NO_DESTRUCTION
+      bench.drop_overviews table
+      puts "   dropped"
+    end
+    {}
+  }
 }
 datasets = Dir['config/datasets/*.yml'].map { |fn| YAML.load File.read(fn) }
 styles = Dir['config/map_*.json'].map { |fn| fn.match(/\/map_(.*)\.json/)[1] }
@@ -75,7 +78,7 @@ datasets.each do |dataset|
     puts "  Table size: #{gb(table_size)}"
     puts "  Table+Overviews size: #{gb(dataset_size)}"
 
-    info_filename = File.join('results', dataset_name, "#{scenario_name}.yml")
+    info_filename = File.join(output_dir, dataset_name, "#{scenario_name}.yml")
     bench.write_output_file info_filename, info.to_yaml
 
     styles.each do |style|
@@ -88,7 +91,7 @@ datasets.each do |dataset|
           (1..measures).each do |measure|
             layergroupid = bench.create_map(map_config_template, table)
             tile_base_name = "tile_#{z}_#{x}_#{y}_#{style}_#{scenario_name}_#{measure}"
-            path = File.join('results', dataset_name, tile_base_name)
+            path = File.join(output_dir, dataset_name, tile_base_name)
             if layergroupid
               errors = bench.fetch_tile path, layergroupid, z, x, y
             else
