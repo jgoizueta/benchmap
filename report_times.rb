@@ -26,6 +26,21 @@ def zoom_bucket(z)
   end
 end
 
+# use this approach to detect outliers: http://mathworld.wolfram.com/Outlier.html
+# * High outliers are anything beyond the 3rd quartile + 1.5 * the inter-quartile range (IQR)
+# * Low outliers are anything beneath the 1st quartile - 1.5 * IQR
+def filter_outliers(values)
+  values = values.sort
+
+  q1 = values[values.size / 4]
+  q3 = values[(values.size * 3) / 4]
+  iqr = q3 - q1;
+  max_value = q3 + iqr * 1.5
+  min_value = q1 - iqr * 1.5
+
+  values.select { |v| v > min_value && v < max_value }
+end
+
 Dir["#{input_dir}/dataset_*/*.yml"].each do |fn|
   file = File.basename(fn)
   dir  = File.dirname(fn)
@@ -54,11 +69,12 @@ Dir["#{input_dir}/dataset_*/*.yml"].each do |fn|
   end
 end
 
+
 data.each do |dataset, ov_z_values|
   ov_z_values.each do |overviews, z_values|
     reduced = {}
     z_values.keys.sort.each do |z|
-      values = z_values[z]
+      values = filter_outliers z_values[z]
       if values.size > 0
         reduced[z] = values.inject(&:+)/values.size.to_f
       end
